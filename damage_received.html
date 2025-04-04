@@ -5,47 +5,47 @@
     <title>Dota 2 Damage Received</title>
     <meta charset="UTF-8">
     <style>
-        /* Basic Styles */
+        /* Basic styles, layout, bars, text etc. remain the same as the 5x scaled version */
         body {
             background-color: rgba(30, 30, 30, 0.75);
-            border-radius: 6px;
+            border-radius: 15px;
             margin: 0;
-            padding: 8px;
+            padding: 40px;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: #ffffff;
             text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.9);
             overflow: hidden;
             width: 100%;
             box-sizing: border-box;
+            font-size: 32px;
         }
 
         .damage-container {
+            padding: 5px;
             display: flex;
             width: 100%;
         }
 
-        /* Single row for all heroes */
         .all-heroes-row {
             display: flex;
-            justify-content: space-between;
+            justify-content: center;
             align-items: flex-end;
             width: 100%;
-            gap: 2px;
+            gap: 10px;
         }
 
         .hero-damage-entry {
-            flex: 1;
-            min-width: 30px;
+            flex: 0 0 auto;
+            width: 75px;
             position: relative;
-            height: 55px;
+            height: 230px;
         }
 
-        /* Container for the vertical bar */
         .damage-bar-container {
-            width: 18px;
-            height: 35px;
+            width: 45px;
+            height: 175px;
             background-color: transparent;
-            border-radius: 3px;
+            border-radius: 8px;
             overflow: hidden;
             display: flex;
             align-items: flex-start;
@@ -55,53 +55,14 @@
             transform: translateX(-50%);
         }
 
-        /* The actual vertical bar */
         .damage-bar {
             width: 100%;
-            background-color: #ffcc00;
             height: 0%;
-            border-radius: 0 0 3px 3px;
-            transition: height 0.3s ease-out;
+            border-radius: 0 0 8px 8px;
+            transition: height 1s ease-out;
         }
 
-        .damage-text {
-            font-size: 0.7em;
-            font-weight: bold;
-            line-height: 1.0;
-            position: absolute;
-            left: 50%;
-            transform: translateX(-50%);
-            top: 37px;
-            /* JS will override */
-            white-space: nowrap;
-        }
-
-        /* Container for the title and icon */
-        #title-container {
-            flex-grow: 0;
-            flex-shrink: 0;
-            align-self: center;
-            padding: 0 10px;
-            text-align: center;
-            line-height: 1.0;
-        }
-
-        #title-text {
-            font-size: 0.9em;
-            font-weight: bold;
-            color: #cccccc;
-            display: block;
-            white-space: nowrap;
-        }
-
-        #title-icon {
-            font-size: 1.1em;
-            color: #aaaaaa;
-            display: block;
-            margin-top: 4px;
-        }
-
-        /* Team-specific bar colors */
+        /* 1s transition */
         .radiant .damage-bar {
             background-color: #62a4f4;
         }
@@ -110,17 +71,64 @@
             background-color: #ff6f61;
         }
 
+        .damage-text {
+            font-size: 1.0rem;
+            font-weight: bold;
+            line-height: 1.0;
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            top: 185px;
+            white-space: nowrap;
+            width: auto;
+        }
+
+        /* Title Container */
+        #title-container {
+            flex-grow: 0;
+            flex-shrink: 0;
+            align-self: flex-end;
+            padding: 0 25px;
+            margin: 0 13px;
+            text-align: center;
+            line-height: 1.1;
+            margin-bottom: 10px;
+        }
+
+        #title-text {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #e0e0e0;
+            display: block;
+            white-space: nowrap;
+        }
+
+        /* Remove old #title-icon styles */
+        /* #title-icon { ... } */
+
+        /* Style for the new image icon (same as damage dealt) */
+        #title-icon-img {
+            width: 225px;
+            /* Match scaled size */
+            height: 225px;
+            object-fit: contain;
+            display: block;
+            margin: 0 auto 10px auto;
+            /* Icon above text */
+            image-rendering: pixelated;
+            /* Keep for sharpness */
+        }
+
         #loading {
             text-align: center;
-            padding: 10px;
-            font-size: 0.8em;
+            padding: 50px;
+            font-size: 1.0rem;
             width: 100%;
         }
     </style>
 </head>
 
 <body>
-
     <div class="damage-container" id="container">
         <div class="all-heroes-row" id="all-heroes-row"></div>
         <div id="loading" style="display: none;">Waiting for game data...</div>
@@ -131,101 +139,80 @@
         const container = document.getElementById('container');
         const loadingDiv = document.getElementById('loading');
         let titleContainerElement = null;
-        const MAX_BAR_HEIGHT_PX = 35;
-        const TEXT_PADDING_BELOW_BAR = 2;
+        const MAX_BAR_HEIGHT_PX = 175; // Match CSS
+        const TEXT_PADDING_BELOW_BAR = 10; // Match CSS/desired look
 
-        function formatValue(value) {
-            // Ensure value is treated as a number, default to 0 if undefined/null
-            const numValue = Number(value) || 0;
-            if (numValue === 0) { return "0.0k"; }
-            return (numValue / 1000).toFixed(1) + 'k';
-        }
-        function getSlotIndex(playerKey) {
-            return parseInt(playerKey.replace('player', ''), 10);
-        }
+        // animateValue function unchanged
+        function animateValue(element, start, end, duration, formatter) { /* ... same as before ... */ let startTime = null; const displayFormatter = formatter || (value => value); const step = (timestamp) => { if (!startTime) startTime = timestamp; const progress = Math.min((timestamp - startTime) / duration, 1); const currentValue = Math.floor(progress * (end - start) + start); element.textContent = displayFormatter(currentValue); if (progress < 1) { window.requestAnimationFrame(step); } }; window.requestAnimationFrame(step); }
+        // formatValue unchanged
+        function formatValue(value) { const numValue = Number(value) || 0; if (numValue === 0) { return "0.0k"; } return (numValue / 1000).toFixed(1) + 'k'; }
+        // getSlotIndex unchanged
+        function getSlotIndex(playerKey) { return parseInt(playerKey.replace('player', ''), 10); }
 
+        // Runs once on load
         async function fetchDataAndUpdate() {
             try {
+                // Fetch, data check unchanged...
+                console.log("Fetching initial data for Dmg Received animation...");
                 const response = await fetch('/damage_data');
                 if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
                 const data = await response.json();
-
-                if (Object.keys(data).length !== 10) {
-                    container.style.display = 'none'; loadingDiv.style.display = 'block';
-                    allHeroesRow.innerHTML = ''; titleContainerElement = null; return;
-                } else {
-                    container.style.display = 'flex'; loadingDiv.style.display = 'none';
-                }
-
+                if (Object.keys(data).length !== 10) { /* ... */ console.log("Initial data incomplete..."); container.style.display = 'none'; loadingDiv.style.display = 'block'; allHeroesRow.innerHTML = ''; titleContainerElement = null; return; }
+                else { /* ... */ console.log("Initial data received..."); container.style.display = 'flex'; loadingDiv.style.display = 'none'; }
                 allHeroesRow.innerHTML = '';
 
-                const players = Object.entries(data).map(([playerKey, playerData]) => ({
-                    playerKey: playerKey,
-                    slotIndex: getSlotIndex(playerKey),
-                    ...playerData,
-                    // *** Trying to access damage_received - THIS FIELD IS NOT PROVIDED BY CURRENT BACKEND ***
-                    damage_value: playerData.damage_received // Use a generic name, points to placeholder
-                }));
-
-                // Find max value based on the placeholder field 'damage_received'
-                let maxValue = 0;
-                // Ensure damage_value is treated as number, default to 0
-                players.forEach(p => { if (Number(p.damage_value) > maxValue) maxValue = Number(p.damage_value); });
-
+                // Player mapping unchanged (still uses damage_received field from data)
+                const players = Object.entries(data).map(([playerKey, playerData]) => ({ playerKey: playerKey, slotIndex: getSlotIndex(playerKey), ...playerData, damage_value: playerData.damage_received }));
+                let maxValue = 0; players.forEach(p => { if (Number(p.damage_value) > maxValue) maxValue = Number(p.damage_value); }); if (maxValue === 0) maxValue = 1;
                 players.sort((a, b) => a.slotIndex - b.slotIndex);
 
                 players.forEach((player, index) => {
-                    const entryDiv = document.createElement('div');
-                    entryDiv.className = `hero-damage-entry ${player.team}`; // Use existing class names
-                    const barContainer = document.createElement('div');
-                    barContainer.className = 'damage-bar-container';
-                    const damageBar = document.createElement('div');
-                    damageBar.className = 'damage-bar'; // Use existing class names
-                    const valueText = document.createElement('span'); // Use generic name
-                    valueText.className = 'damage-text'; // Use existing class name
-                    // Display the placeholder value
-                    valueText.textContent = formatValue(player.damage_value);
-
-                    // Calculate bar height based on placeholder value
-                    const currentVal = Number(player.damage_value) || 0;
-                    const barHeightPercent = (maxValue > 0) ? Math.min(100, (currentVal / maxValue) * 100) : 0;
+                    // Element creation, bar height calc, text position calc unchanged...
+                    const entryDiv = document.createElement('div'); entryDiv.className = `hero-damage-entry ${player.team}`;
+                    const barContainer = document.createElement('div'); barContainer.className = 'damage-bar-container';
+                    const damageBar = document.createElement('div'); damageBar.className = 'damage-bar';
+                    const damageText = document.createElement('span'); damageText.className = 'damage-text';
+                    const targetValue = Number(player.damage_value) || 0;
+                    damageText.textContent = formatValue(0);
+                    const barHeightPercent = (maxValue > 0) ? Math.min(100, (targetValue / maxValue) * 100) : 0;
                     const barPixelHeight = (MAX_BAR_HEIGHT_PX / 100) * barHeightPercent;
-
-                    damageBar.style.height = barHeightPercent + '%';
-                    valueText.style.top = (barPixelHeight + TEXT_PADDING_BELOW_BAR) + 'px';
-
+                    damageText.style.top = (barPixelHeight + TEXT_PADDING_BELOW_BAR) + 'px';
                     barContainer.appendChild(damageBar);
                     entryDiv.appendChild(barContainer);
-                    entryDiv.appendChild(valueText);
+                    entryDiv.appendChild(damageText);
                     allHeroesRow.appendChild(entryDiv);
 
-                    // Insert Title container after the 5th hero
+                    // Trigger animations (unchanged logic, just uses targetValue)
+                    setTimeout(() => { damageBar.style.height = barHeightPercent + '%'; }, 50);
+                    animateValue(damageText, 0, targetValue, 1000, formatValue); // 1s duration
+
+                    // Title insertion
                     if (index === 4) {
                         if (!titleContainerElement) {
                             titleContainerElement = document.createElement('div');
                             titleContainerElement.id = 'title-container';
                             const textSpan = document.createElement('span');
                             textSpan.id = 'title-text';
-                            textSpan.textContent = 'Damage Received';
-                            const iconSpan = document.createElement('span');
-                            iconSpan.id = 'title-icon';
-                            iconSpan.textContent = '🛡️';
+                            textSpan.textContent = 'Damage Received'; // Correct text
+
+                            // --- Create IMG tag for the shield icon ---
+                            const iconImg = document.createElement('img');
+                            iconImg.id = 'title-icon-img'; // Use same ID for styling
+                            iconImg.src = 'shield_icon.png'; // <<< YOUR SHIELD FILENAME
+                            iconImg.alt = 'Damage Received Icon'; // Alt text
+
+                            // --- Append ICON FIRST, then TEXT ---
+                            titleContainerElement.appendChild(iconImg);
                             titleContainerElement.appendChild(textSpan);
-                            titleContainerElement.appendChild(iconSpan);
                         }
                         allHeroesRow.appendChild(titleContainerElement);
                     }
                 });
-
-            } catch (error) {
-                console.error("Could not fetch or update damage received data:", error);
-                container.style.display = 'none'; loadingDiv.textContent = 'Error loading data.';
-                loadingDiv.style.display = 'block'; allHeroesRow.innerHTML = '';
-                titleContainerElement = null;
-            }
+                console.log("Initial Dmg Received animation started.");
+            } catch (error) { console.error("Could not fetch/update Dmg Received ON LOAD:", error); container.style.display = 'none'; loadingDiv.textContent = 'Error loading data.'; loadingDiv.style.display = 'block'; allHeroesRow.innerHTML = ''; titleContainerElement = null; }
         }
 
-        const updateInterval = setInterval(fetchDataAndUpdate, 2000);
+        // Run once on load
         fetchDataAndUpdate();
     </script>
 </body>

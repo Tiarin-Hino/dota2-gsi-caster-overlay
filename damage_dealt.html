@@ -73,7 +73,7 @@
             height: 0%;
             border-radius: 0 0 8px 8px;
             /* Increased radius */
-            transition: height 0.3s ease-out;
+            transition: height 1s ease-out;
         }
 
         .radiant .damage-bar {
@@ -156,24 +156,53 @@
         const container = document.getElementById('container');
         const loadingDiv = document.getElementById('loading');
         let titleContainerElement = null;
-        // --- UPDATE THESE CONSTANTS ---
-        const MAX_BAR_HEIGHT_PX = 175; // Matches new .damage-bar-container height
-        const TEXT_PADDING_BELOW_BAR = 10; // Scaled padding (adjust if needed)
-        // --- END UPDATES ---
+        const MAX_BAR_HEIGHT_PX = 175;
+        const TEXT_PADDING_BELOW_BAR = 10;
 
-        // Functions formatDamage, getSlotIndex remain the same...
+        // animateValue function remains the same
+        function animateValue(element, start, end, duration, formatter) {
+            let startTime = null;
+            const displayFormatter = formatter || (value => value);
+            const step = (timestamp) => {
+                if (!startTime) startTime = timestamp;
+                const progress = Math.min((timestamp - startTime) / duration, 1);
+                const currentValue = Math.floor(progress * (end - start) + start);
+                element.textContent = displayFormatter(currentValue);
+                if (progress < 1) {
+                    window.requestAnimationFrame(step);
+                }
+            };
+            window.requestAnimationFrame(step);
+        }
+
+        // formatDamage and getSlotIndex remain the same
         function formatDamage(damage) { if (damage === 0) { return "0.0k"; } return (damage / 1000).toFixed(1) + 'k'; }
         function getSlotIndex(playerKey) { return parseInt(playerKey.replace('player', ''), 10); }
 
+        // --- This function now only runs ONCE on page load ---
         async function fetchDataAndUpdate() {
+            // Add a small delay before fetching, just to ensure OBS renders the source first (optional)
+            // await new Promise(resolve => setTimeout(resolve, 100));
+
             try {
-                // Fetch, data check, player mapping, max damage calc, sort remain the same...
+                console.log("Fetching initial data for animation..."); // Log initial fetch
                 const response = await fetch('/damage_data');
                 if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
                 const data = await response.json();
-                if (Object.keys(data).length !== 10) { container.style.display = 'none'; loadingDiv.style.display = 'block'; allHeroesRow.innerHTML = ''; titleContainerElement = null; return; }
-                else { container.style.display = 'flex'; loadingDiv.style.display = 'none'; }
-                allHeroesRow.innerHTML = '';
+
+                // Check for valid data before proceeding
+                if (Object.keys(data).length !== 10) {
+                    console.log("Initial data incomplete, showing loading/error.");
+                    container.style.display = 'none'; loadingDiv.style.display = 'block';
+                    allHeroesRow.innerHTML = ''; titleContainerElement = null; return;
+                } else {
+                    console.log("Initial data received, preparing animation.");
+                    container.style.display = 'flex'; loadingDiv.style.display = 'none';
+                }
+
+                allHeroesRow.innerHTML = ''; // Clear just in case
+
+                // Player mapping, max damage calc, sorting remain the same...
                 const players = Object.entries(data).map(([playerKey, playerData]) => ({ playerKey: playerKey, slotIndex: getSlotIndex(playerKey), ...playerData }));
                 let maxDamage = 0;
                 players.forEach(p => { if (p.damage_dealt > maxDamage) maxDamage = p.damage_dealt; });
@@ -186,38 +215,60 @@
                     const barContainer = document.createElement('div'); barContainer.className = 'damage-bar-container';
                     const damageBar = document.createElement('div'); damageBar.className = 'damage-bar';
                     const damageText = document.createElement('span'); damageText.className = 'damage-text';
-                    damageText.textContent = formatDamage(player.damage_dealt);
 
-                    // Calculation uses updated constants
-                    const barHeightPercent = (maxDamage > 0) ? Math.min(100, (player.damage_dealt / maxDamage) * 100) : 0;
+                    const targetDamageValue = Number(player.damage_dealt) || 0;
+                    // Set initial text for number animation
+                    damageText.textContent = formatDamage(0);
+
+                    // Bar Height Calculation remains the same...
+                    const barHeightPercent = (maxDamage > 0) ? Math.min(100, (targetDamageValue / maxDamage) * 100) : 0;
                     const barPixelHeight = (MAX_BAR_HEIGHT_PX / 100) * barHeightPercent;
 
-                    damageBar.style.height = barHeightPercent + '%';
-                    // Set dynamic top position for text using updated constants
+                    // Set final text position immediately
                     damageText.style.top = (barPixelHeight + TEXT_PADDING_BELOW_BAR) + 'px';
 
-                    // Appending elements remains the same...
+                    // Append elements (needed before animation trigger)
                     barContainer.appendChild(damageBar);
                     entryDiv.appendChild(barContainer);
                     entryDiv.appendChild(damageText);
                     allHeroesRow.appendChild(entryDiv);
 
+                    // --- Trigger Animations ONCE ---
+                    // Use setTimeout to ensure elements are rendered at 0 height before transition starts
+                    setTimeout(() => {
+                        damageBar.style.height = barHeightPercent + '%';
+                    }, 50); // Small delay (50ms)
+
+                    // Number Animation - Change duration to 1000ms
+                    animateValue(damageText, 0, targetDamageValue, 1000, formatDamage);
+
+
                     // Title insertion remains the same...
                     if (index === 4) {
+                        // Creation code unchanged...
                         if (!titleContainerElement) {
                             titleContainerElement = document.createElement('div'); titleContainerElement.id = 'title-container';
                             const iconImg = document.createElement('img'); iconImg.id = 'title-icon-img'; iconImg.src = 'damage_icon.png'; iconImg.alt = 'Damage Icon';
                             const textSpan = document.createElement('span'); textSpan.id = 'title-text'; textSpan.textContent = 'Damage Dealt';
-                            titleContainerElement.appendChild(iconImg); // Icon first
-                            titleContainerElement.appendChild(textSpan); // Text second
+                            titleContainerElement.appendChild(iconImg); titleContainerElement.appendChild(textSpan);
                         }
                         allHeroesRow.appendChild(titleContainerElement);
                     }
                 });
-            } catch (error) { /* Error handling unchanged */ console.error("Could not fetch or update damage dealt data:", error); container.style.display = 'none'; loadingDiv.textContent = 'Error loading data.'; loadingDiv.style.display = 'block'; allHeroesRow.innerHTML = ''; titleContainerElement = null; }
+                console.log("Initial animation started.");
+
+            } catch (error) {
+                console.error("Could not fetch or update damage dealt data ON LOAD:", error);
+                container.style.display = 'none'; loadingDiv.textContent = 'Error loading data.';
+                loadingDiv.style.display = 'block'; allHeroesRow.innerHTML = '';
+                titleContainerElement = null;
+            }
         }
-        // Interval and initial fetch remain the same...
-        const updateInterval = setInterval(fetchDataAndUpdate, 2000);
+
+        // --- REMOVE THE INTERVAL ---
+        // const updateInterval = setInterval(fetchDataAndUpdate, 2000);
+
+        // --- KEEP SINGLE CALL TO RUN ONCE ---
         fetchDataAndUpdate();
     </script>
 </body>

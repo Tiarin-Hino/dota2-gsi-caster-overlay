@@ -5,66 +5,62 @@
     <title>Dota 2 Wards Overlay</title>
     <meta charset="UTF-8">
     <style>
-        /* Basic Styles */
+        /* --- Styles identical to previous version, except transition --- */
         body {
             background-color: rgba(30, 30, 30, 0.75);
-            border-radius: 6px;
+            border-radius: 15px;
             margin: 0;
-            padding: 8px;
+            padding: 40px;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             color: #ffffff;
             text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.9);
             overflow: hidden;
             width: 100%;
             box-sizing: border-box;
+            font-size: 32px;
         }
 
         .wards-container {
-            padding: 2px;
+            padding: 5px;
             display: flex;
             width: 100%;
         }
 
-        /* Single row for all heroes */
         .all-heroes-row {
             display: flex;
-            /* --- Change to center items --- */
             justify-content: center;
             align-items: flex-end;
             width: 100%;
-            gap: 2px;
-            /* Keep small gap between adjacent entries */
+            gap: 10px;
         }
 
         .hero-stat-entry {
-            /* --- Prevent growing/shrinking, set base width --- */
             flex: 0 0 auto;
-            width: 32px;
-            /* ADJUST THIS to match portrait width */
-            /* min-width: 30px; */
-            /* Can remove min-width if using fixed width */
+            width: 75px;
             position: relative;
-            height: 60px;
-            /* text-align: center; -> Already centered via bar/text positioning */
+            height: 230px;
         }
 
-        /* Container for the vertical bar */
+        /* Adjusted height */
         .bars-wrapper {
-            height: 35px;
+            height: 175px;
             position: absolute;
             top: 0;
             left: 50%;
             transform: translateX(-50%);
             display: flex;
             justify-content: center;
-            gap: 2px;
+            gap: 5px;
+            /* Scaled gap */
         }
 
         .ward-bar-container {
-            width: 8px;
+            width: 20px;
+            /* Scaled width */
             height: 100%;
             background-color: transparent;
-            border-radius: 2px;
+            border-radius: 5px;
+            /* Scaled radius */
             overflow: hidden;
             display: flex;
             align-items: flex-start;
@@ -73,8 +69,10 @@
         .ward-bar {
             width: 100%;
             height: 0%;
-            border-radius: 0 0 2px 2px;
-            transition: height 0.3s ease-out;
+            border-radius: 0 0 5px 5px;
+            /* Scaled radius */
+            /* --- Change duration to 1s --- */
+            transition: height 1s ease-out;
         }
 
         .placed .ward-bar {
@@ -85,18 +83,16 @@
             background-color: #F44336;
         }
 
-        /* Individual stat text */
         .stat-text {
-            font-size: 0.75em;
+            font-size: 1.0rem;
             font-weight: bold;
             line-height: 1.0;
             position: absolute;
-            left: 50%;
-            /* Centering handled via transform */
-            /* JS sets top and transform */
+            /*left/transform set in JS*/
+            top: 185px;
+            /* Fallback */
             white-space: nowrap;
             width: auto;
-            /* Let text determine width */
         }
 
         .stat-text.placed {
@@ -107,20 +103,19 @@
             color: #ef9a9a;
         }
 
-        /* Container for the title and icon */
         #title-container {
             flex-grow: 0;
             flex-shrink: 0;
-            align-self: center;
-            /* --- Adjust padding to control the central gap --- */
-            padding: 0 14px;
+            align-self: flex-end;
+            padding: 0 25px;
+            margin: 0 13px;
             text-align: center;
             line-height: 1.1;
-            margin-bottom: 5px;
+            margin-bottom: 10px;
         }
 
         #title-text {
-            font-size: 0.9em;
+            font-size: 1.1rem;
             font-weight: bold;
             color: #cccccc;
             display: block;
@@ -128,32 +123,35 @@
         }
 
         #title-subtitle {
-            font-size: 0.7em;
+            font-size: 0.9rem;
             font-weight: normal;
             color: #bbbbbb;
             display: block;
             white-space: nowrap;
-            margin-top: -1px;
+            margin-top: -2px;
         }
 
-        #title-icon {
-            font-size: 1.0em;
-            color: #aaaaaa;
+        #title-icon-img {
+            width: 225px;
+            height: 225px;
+            /* Scaled approx */
+            object-fit: contain;
             display: block;
-            margin-top: 3px;
+            margin: 0 auto 8px auto;
+            image-rendering: pixelated;
         }
 
+        /* Assumes custom icon 'wards_icon.png' */
         #loading {
             text-align: center;
-            padding: 10px;
-            font-size: 0.8em;
+            padding: 50px;
+            font-size: 1.0rem;
             width: 100%;
         }
     </style>
 </head>
 
 <body>
-
     <div class="wards-container" id="container">
         <div class="all-heroes-row" id="all-heroes-row"></div>
         <div id="loading" style="display: none;">Waiting for game data...</div>
@@ -164,29 +162,39 @@
         const container = document.getElementById('container');
         const loadingDiv = document.getElementById('loading');
         let titleContainerElement = null;
-        // --- Define constants matching CSS ---
-        const MAX_BAR_HEIGHT_PX = 35; // Matches .bars-wrapper height
-        const BAR_WIDTH_PX = 8;       // Matches .ward-bar-container width
-        const BAR_GAP_PX = 2;         // Matches .bars-wrapper gap
-        const TEXT_PADDING_BELOW_BAR = 2; // Space between bar bottom and text top
+        // --- UPDATE CONSTANTS ---
+        const MAX_BAR_HEIGHT_PX = 175; // Matches CSS .bars-wrapper height
+        const BAR_WIDTH_PX = 20;       // Matches CSS .ward-bar-container width
+        const BAR_GAP_PX = 5;         // Matches CSS .bars-wrapper gap
+        const TEXT_PADDING_BELOW_BAR = 10; // Scaled padding
 
-        // getSlotIndex remains the same
-        function getSlotIndex(playerKey) {
-            return parseInt(playerKey.replace('player', ''), 10);
+        // animateValue function (copy from damage_dealt)
+        function animateValue(element, start, end, duration, formatter) {
+            let startTime = null;
+            const displayFormatter = formatter || (value => value); // Default to no format
+            const step = (timestamp) => {
+                if (!startTime) startTime = timestamp;
+                const progress = Math.min((timestamp - startTime) / duration, 1);
+                const currentValue = Math.floor(progress * (end - start) + start);
+                element.textContent = displayFormatter(currentValue);
+                if (progress < 1) { window.requestAnimationFrame(step); }
+            };
+            window.requestAnimationFrame(step);
         }
 
+        // getSlotIndex remains the same
+        function getSlotIndex(playerKey) { return parseInt(playerKey.replace('player', ''), 10); }
+
+        // Runs once on load
         async function fetchDataAndUpdate() {
             try {
+                console.log("Fetching initial data for Wards animation...");
                 const response = await fetch('/damage_data');
                 if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
                 const data = await response.json();
 
-                if (Object.keys(data).length !== 10) {
-                    container.style.display = 'none'; loadingDiv.style.display = 'block';
-                    allHeroesRow.innerHTML = ''; titleContainerElement = null; return;
-                } else {
-                    container.style.display = 'flex'; loadingDiv.style.display = 'none';
-                }
+                if (Object.keys(data).length !== 10) { /* ... unchanged ... */ console.log("Initial data incomplete..."); container.style.display = 'none'; loadingDiv.style.display = 'block'; allHeroesRow.innerHTML = ''; titleContainerElement = null; return; }
+                else { /* ... unchanged ... */ console.log("Initial data received..."); container.style.display = 'flex'; loadingDiv.style.display = 'none'; }
 
                 allHeroesRow.innerHTML = '';
 
@@ -196,120 +204,90 @@
                     wards_destroyed_val: Number(playerData.wards_destroyed) || 0
                 }));
 
+                // Find GLOBAL Max value across BOTH stats
                 let maxWardValue = 0;
-                players.forEach(p => {
-                    if (p.wards_placed_val > maxWardValue) maxWardValue = p.wards_placed_val;
-                    if (p.wards_destroyed_val > maxWardValue) maxWardValue = p.wards_destroyed_val;
-                });
-                if (maxWardValue === 0) maxWardValue = 1; // Avoid division by zero
+                players.forEach(p => { if (p.wards_placed_val > maxWardValue) maxWardValue = p.wards_placed_val; if (p.wards_destroyed_val > maxWardValue) maxWardValue = p.wards_destroyed_val; });
+                if (maxWardValue === 0) maxWardValue = 1;
 
                 players.sort((a, b) => a.slotIndex - b.slotIndex);
 
-                // --- Calculate horizontal offsets for text centering ---
-                // Center of the left bar relative to the center of the entry div
+                // Calculate horizontal offsets
                 const placedTextOffset = -(BAR_GAP_PX / 2 + BAR_WIDTH_PX / 2);
-                // Center of the right bar relative to the center of the entry div
                 const destroyedTextOffset = (BAR_GAP_PX / 2 + BAR_WIDTH_PX / 2);
 
-
                 players.forEach((player, index) => {
-                    const entryDiv = document.createElement('div');
-                    entryDiv.className = 'hero-stat-entry';
+                    const entryDiv = document.createElement('div'); entryDiv.className = 'hero-stat-entry';
+                    const barsWrapper = document.createElement('div'); barsWrapper.className = 'bars-wrapper';
 
-                    const barsWrapper = document.createElement('div');
-                    barsWrapper.className = 'bars-wrapper';
-
-                    // --- Placed Bar ---
+                    // Placed Elements
                     const placedValue = player.wards_placed_val;
-                    const placedBarContainer = document.createElement('div');
-                    placedBarContainer.className = 'ward-bar-container placed';
-                    const placedBar = document.createElement('div');
-                    placedBar.className = 'ward-bar';
+                    const placedBarContainer = document.createElement('div'); placedBarContainer.className = 'ward-bar-container placed';
+                    const placedBar = document.createElement('div'); placedBar.className = 'ward-bar';
+                    const placedText = document.createElement('span'); placedText.className = 'stat-text placed'; placedText.textContent = 0; // Start at 0
                     const placedHeightPercent = Math.min(100, (placedValue / maxWardValue) * 100);
                     const placedPixelHeight = (MAX_BAR_HEIGHT_PX / 100) * placedHeightPercent;
-                    placedBar.style.height = placedHeightPercent + '%';
+                    placedText.style.top = (placedPixelHeight + TEXT_PADDING_BELOW_BAR) + 'px';
+                    placedText.style.left = '50%'; placedText.style.transform = `translateX(calc(-50% + ${placedTextOffset}px))`;
                     placedBarContainer.appendChild(placedBar);
 
-                    // --- Destroyed Bar ---
+                    // Destroyed Elements
                     const destroyedValue = player.wards_destroyed_val;
-                    const destroyedBarContainer = document.createElement('div');
-                    destroyedBarContainer.className = 'ward-bar-container destroyed';
-                    const destroyedBar = document.createElement('div');
-                    destroyedBar.className = 'ward-bar';
+                    const destroyedBarContainer = document.createElement('div'); destroyedBarContainer.className = 'ward-bar-container destroyed';
+                    const destroyedBar = document.createElement('div'); destroyedBar.className = 'ward-bar';
+                    const destroyedText = document.createElement('span'); destroyedText.className = 'stat-text destroyed'; destroyedText.textContent = 0; // Start at 0
                     const destroyedHeightPercent = Math.min(100, (destroyedValue / maxWardValue) * 100);
                     const destroyedPixelHeight = (MAX_BAR_HEIGHT_PX / 100) * destroyedHeightPercent;
-                    destroyedBar.style.height = destroyedHeightPercent + '%';
+                    destroyedText.style.top = (destroyedPixelHeight + TEXT_PADDING_BELOW_BAR) + 'px';
+                    destroyedText.style.left = '50%'; destroyedText.style.transform = `translateX(calc(-50% + ${destroyedTextOffset}px))`;
                     destroyedBarContainer.appendChild(destroyedBar);
 
+                    // Append Bars
                     barsWrapper.appendChild(placedBarContainer);
                     barsWrapper.appendChild(destroyedBarContainer);
 
-                    // --- Placed Number ---
-                    const placedText = document.createElement('span');
-                    placedText.className = 'stat-text placed';
-                    placedText.textContent = placedValue;
-                    // Position text dynamically
-                    placedText.style.top = (placedPixelHeight + TEXT_PADDING_BELOW_BAR) + 'px';
-                    placedText.style.left = '50%';
-                    placedText.style.transform = `translateX(calc(-50% + ${placedTextOffset}px))`;
+                    // Append Elements to Entry Div
+                    entryDiv.appendChild(barsWrapper);
+                    entryDiv.appendChild(placedText);
+                    entryDiv.appendChild(destroyedText);
+                    allHeroesRow.appendChild(entryDiv);
 
-                    // --- Destroyed Number ---
-                    const destroyedText = document.createElement('span');
-                    destroyedText.className = 'stat-text destroyed';
-                    destroyedText.textContent = destroyedValue;
-                    // Position text dynamically
-                    destroyedText.style.top = (destroyedPixelHeight + TEXT_PADDING_BELOW_BAR) + 'px';
-                    destroyedText.style.left = '50%';
-                    destroyedText.style.transform = `translateX(calc(-50% + ${destroyedTextOffset}px))`;
+                    // Hide Zeros (Visibility AFTER elements are added)
+                    if (placedValue === 0) { placedBarContainer.style.visibility = 'hidden'; placedText.style.visibility = 'hidden'; }
+                    if (destroyedValue === 0) { destroyedBarContainer.style.visibility = 'hidden'; destroyedText.style.visibility = 'hidden'; }
 
-                    // --- Hide Zeros ---
-                    if (placedValue === 0) {
-                        placedBarContainer.style.visibility = 'hidden';
-                        placedText.style.visibility = 'hidden';
-                    }
-                    if (destroyedValue === 0) {
-                        destroyedBarContainer.style.visibility = 'hidden';
-                        destroyedText.style.visibility = 'hidden';
-                    }
+                    // Trigger Animations ONCE
+                    setTimeout(() => {
+                        placedBar.style.height = placedHeightPercent + '%';
+                        destroyedBar.style.height = destroyedHeightPercent + '%';
+                    }, 50); // Small delay
 
-                    // --- Append elements ---
-                    entryDiv.appendChild(barsWrapper); // Bars added first
-                    entryDiv.appendChild(placedText);  // Placed text added directly to entry
-                    entryDiv.appendChild(destroyedText);// Destroyed text added directly to entry
-                    allHeroesRow.appendChild(entryDiv); // Add completed entry to the row
+                    // Animate numbers - duration 1000ms, no formatter needed
+                    animateValue(placedText, 0, placedValue, 1000, null);
+                    animateValue(destroyedText, 0, destroyedValue, 1000, null);
 
-                    // --- Insert Title ---
+
+                    // Title insertion
                     if (index === 4) {
                         if (!titleContainerElement) {
-                            // Create title elements (same as before)
-                            titleContainerElement = document.createElement('div');
-                            titleContainerElement.id = 'title-container';
-                            const textSpan = document.createElement('span');
-                            textSpan.id = 'title-text';
-                            textSpan.textContent = 'Wards';
-                            const subtitleSpan = document.createElement('span');
-                            subtitleSpan.id = 'title-subtitle';
-                            subtitleSpan.textContent = 'Placed / Destroyed';
-                            const iconSpan = document.createElement('span');
-                            iconSpan.id = 'title-icon';
-                            iconSpan.textContent = '👁️';
+                            // Create elements (assuming wards_icon.png)
+                            titleContainerElement = document.createElement('div'); titleContainerElement.id = 'title-container';
+                            const iconImg = document.createElement('img'); iconImg.id = 'title-icon-img'; iconImg.src = 'wards_icon.png'; iconImg.alt = 'Wards Icon';
+                            const textSpan = document.createElement('span'); textSpan.id = 'title-text'; textSpan.textContent = 'Wards';
+                            const subtitleSpan = document.createElement('span'); subtitleSpan.id = 'title-subtitle'; subtitleSpan.textContent = 'Placed / Destroyed';
+                            titleContainerElement.appendChild(iconImg); // Icon First
                             titleContainerElement.appendChild(textSpan);
                             titleContainerElement.appendChild(subtitleSpan);
-                            titleContainerElement.appendChild(iconSpan);
                         }
                         allHeroesRow.appendChild(titleContainerElement);
                     }
                 });
-
-            } catch (error) {
-                console.error("Could not fetch or update wards data:", error);
-                container.style.display = 'none'; loadingDiv.textContent = 'Error loading data.';
-                loadingDiv.style.display = 'block'; allHeroesRow.innerHTML = '';
-                titleContainerElement = null;
-            }
+                console.log("Initial Wards animation started.");
+            } catch (error) { console.error("Could not fetch/update Wards ON LOAD:", error); container.style.display = 'none'; loadingDiv.textContent = 'Error loading data.'; loadingDiv.style.display = 'block'; allHeroesRow.innerHTML = ''; titleContainerElement = null; }
         }
 
-        const updateInterval = setInterval(fetchDataAndUpdate, 2000);
+        // REMOVE INTERVAL
+        // const updateInterval = setInterval(fetchDataAndUpdate, 2000);
+        // CALL ONCE
         fetchDataAndUpdate();
     </script>
 </body>
