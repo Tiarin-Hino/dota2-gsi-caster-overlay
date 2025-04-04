@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Dota 2 Courier Deliveries</title>
+    <meta charset="UTF-8">
+    <style>
+        /* Basic Styles */
+        body {
+            background-color: rgba(0, 0, 0, 0);
+            /* Fully transparent background */
+            margin: 0;
+            padding: 10px;
+            /* Padding around the edges */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #ffffff;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.9);
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            /* Ensure body takes height */
+            box-sizing: border-box;
+            display: flex;
+            /* Use flexbox for positioning courier icon */
+            flex-direction: column;
+            /* Stack deliveries container and icon */
+            justify-content: flex-end;
+            /* Push content to the bottom */
+        }
+
+        /* Container for delivery rows */
+        #delivery-container {
+            display: flex;
+            /* New rows added via JS appear visually at the top */
+            flex-direction: column-reverse;
+            /* Align rows to the right edge */
+            align-items: flex-end;
+            gap: 5px;
+            /* Space between delivery rows */
+            width: 100%;
+            /* Limit max height if needed: max-height: 300px; overflow-y: auto; */
+        }
+
+        /* Individual delivery row */
+        .delivery-row {
+            display: flex;
+            justify-content: flex-end;
+            /* Align content (items, hero) to the right */
+            align-items: center;
+            background-color: rgba(30, 30, 30, 0.8);
+            /* Row background */
+            border-radius: 5px;
+            padding: 4px 8px;
+            gap: 8px;
+            /* Space between item list and hero icon */
+            width: fit-content;
+            /* Row width adjusts to content */
+            min-width: 150px;
+            /* Minimum width */
+            opacity: 1;
+            max-height: 100px;
+            /* Set high enough for content */
+            transform: translateX(0);
+            transition: opacity 0.5s ease-out, max-height 0.5s ease-out, transform 0.5s ease-out, margin-top 0.5s ease-out;
+            overflow: hidden;
+            /* Needed for max-height transition */
+        }
+
+        /* Animation states */
+        .delivery-row.entering {
+            opacity: 0;
+            max-height: 0;
+            transform: translateX(100%);
+            /* Slide in from right */
+            margin-top: -5px;
+            /* Counteract gap during animation */
+        }
+
+        .delivery-row.exiting {
+            opacity: 0;
+            max-height: 0;
+            transform: translateX(100%);
+            /* Slide out to right */
+            padding-top: 0;
+            padding-bottom: 0;
+            margin-top: -5px;
+            margin-bottom: -5px;
+        }
+
+
+        /* List of item icons */
+        .item-list {
+            display: flex;
+            gap: 3px;
+            flex-wrap: wrap;
+            /* Allow items to wrap if many */
+            justify-content: flex-end;
+            /* Align items to the right within the list */
+        }
+
+        .item-icon {
+            width: 32px;
+            /* Adjust item icon size */
+            height: 24px;
+            vertical-align: middle;
+            background-color: rgba(0, 0, 0, 0.5);
+            /* Slight bg for contrast */
+            border: 1px solid #444;
+        }
+
+        /* Hero icon */
+        .hero-icon {
+            width: 40px;
+            /* Adjust hero icon size */
+            height: 23px;
+            /* Standard 16:9 ratio */
+            border: 1px solid #555;
+            background-size: cover;
+            background-position: center center;
+            flex-shrink: 0;
+            /* Prevent icon from shrinking */
+        }
+
+        /* Courier icon at the bottom */
+        #courier-icon {
+            width: 40px;
+            /* Adjust size */
+            height: 40px;
+            display: block;
+            margin: 5px auto 0 auto;
+            /* Above bottom padding, centered */
+            opacity: 1;
+            transition: opacity 0.5s ease-out;
+        }
+
+        #courier-icon.hidden {
+            opacity: 0;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div id="delivery-container"></div>
+
+    <img id="courier-icon" src="courier_icon.png" alt="Courier Active" class="hidden">
+
+    <script>
+        const deliveryContainer = document.getElementById('delivery-container');
+        const courierIcon = document.getElementById('courier-icon');
+        const POLLING_INTERVAL = 500; // Fetch data every second
+        const ANIMATION_DURATION = 500; // CSS transition time in ms
+
+        // Store currently displayed rows by their deliveryId
+        let displayedDeliveries = {}; // { deliveryId: { element: rowElement, items: [...] } }
+
+        // --- Helper Functions ---
+
+        // Get Item Icon URL (using Steam CDN)
+        function getItemIconUrl(itemName) {
+            if (!itemName || itemName === 'empty') return '';
+            // Basic name cleanup (remove 'item_')
+            const cleanName = itemName.startsWith('item_') ? itemName.substring(5) : itemName;
+            // Construct URL (adjust path based on actual CDN structure if needed)
+            // This uses the standard /apps/dota2/images/items/ path
+            return `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/items/${cleanName}_lg.png`;
+        }
+
+        // Get Hero Icon URL (using Steam CDN)
+        function getHeroIconUrl(heroName) {
+            if (!heroName || heroName === 'unknown_hero') return '';
+            // Clean name (remove 'npc_dota_hero_')
+            const cleanName = heroName.startsWith('npc_dota_hero_') ? heroName.substring(14) : heroName;
+            // Use horizontal portrait ('lg')
+            return `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/${cleanName}.png`;
+        }
+
+        // --- Main Update Logic ---
+
+        function updateDisplay(activeDeliveries) {
+            const currentDeliveryIds = new Set();
+            activeDeliveries.forEach(d => currentDeliveryIds.add(d.deliveryId));
+
+            // 1. Remove rows for completed/vanished deliveries
+            for (const deliveryId in displayedDeliveries) {
+                if (!currentDeliveryIds.has(deliveryId)) {
+                    const rowData = displayedDeliveries[deliveryId];
+                    if (rowData && rowData.element) {
+                        rowData.element.classList.add('exiting'); // Trigger exit animation
+                        // Remove from DOM and state after animation
+                        setTimeout(() => {
+                            rowData.element.remove();
+                        }, ANIMATION_DURATION);
+                    }
+                    delete displayedDeliveries[deliveryId]; // Remove from state immediately
+                }
+            }
+
+            // 2. Add rows for new deliveries
+            activeDeliveries.forEach(delivery => {
+                if (!displayedDeliveries[delivery.deliveryId]) {
+                    // Create new row element
+                    const rowElement = document.createElement('div');
+                    rowElement.className = 'delivery-row entering'; // Start with entering class
+                    rowElement.dataset.id = delivery.deliveryId; // Store ID for removal check
+
+                    // Create item list elements
+                    const itemList = document.createElement('div');
+                    itemList.className = 'item-list';
+                    delivery.items.forEach(item => {
+                        const img = document.createElement('img');
+                        img.className = 'item-icon';
+                        img.src = getItemIconUrl(item.name);
+                        img.alt = item.name.replace('item_', '');
+                        itemList.appendChild(img);
+                    });
+
+                    // Create hero icon element
+                    const heroIcon = document.createElement('div');
+                    heroIcon.className = 'hero-icon';
+                    const heroIconUrl = getHeroIconUrl(delivery.heroName);
+                    if (heroIconUrl) {
+                        heroIcon.style.backgroundImage = `url(${heroIconUrl})`;
+                    }
+
+                    // Append items and hero icon to row (order reversed visually)
+                    rowElement.appendChild(itemList);
+                    rowElement.appendChild(heroIcon);
+
+                    // Add to container (will appear at top due to column-reverse)
+                    deliveryContainer.appendChild(rowElement);
+
+                    // Store reference
+                    displayedDeliveries[delivery.deliveryId] = { element: rowElement, items: delivery.items };
+
+                    // Trigger enter animation after element is added
+                    requestAnimationFrame(() => {
+                        setTimeout(() => { // Need timeout after raf to ensure transition triggers
+                            rowElement.classList.remove('entering');
+                        }, 20); // Small delay
+                    });
+
+                }
+                // No need to update existing rows as per current logic
+            });
+
+            // 3. Show/hide courier icon
+            if (activeDeliveries.length > 0) {
+                courierIcon.classList.remove('hidden');
+            } else {
+                courierIcon.classList.add('hidden');
+            }
+        }
+
+        // --- Fetching Data ---
+
+        async function fetchData() {
+            try {
+                const response = await fetch('/delivery_data'); // Fetch from courier server endpoint
+                if (!response.ok) {
+                    console.error(`HTTP error! Status: ${response.status}`);
+                    // Optionally hide everything or show error state
+                    updateDisplay([]); // Clear display on error
+                    return;
+                }
+                const deliveries = await response.json();
+                updateDisplay(deliveries || []); // Update display with fetched data
+            } catch (error) {
+                console.error("Could not fetch delivery data:", error);
+                updateDisplay([]); // Clear display on error
+            }
+        }
+
+        // --- Initial Setup & Interval ---
+        fetchData(); // Initial fetch
+        setInterval(fetchData, POLLING_INTERVAL); // Fetch data periodically
+
+    </script>
+</body>
+
+</html>
