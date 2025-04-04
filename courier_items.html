@@ -47,8 +47,9 @@
             justify-content: flex-end;
             /* Align content (items, hero) to the right */
             align-items: center;
-            background-color: rgba(30, 30, 30, 0.8);
-            /* Row background */
+            /* Center items vertically */
+            background-color: transparent;
+            /* No background */
             border-radius: 5px;
             padding: 4px 8px;
             gap: 8px;
@@ -62,8 +63,10 @@
             /* Set high enough for content */
             transform: translateX(0);
             transition: opacity 0.5s ease-out, max-height 0.5s ease-out, transform 0.5s ease-out, margin-top 0.5s ease-out;
-            overflow: hidden;
-            /* Needed for max-height transition */
+            overflow: visible;
+            /* Allow dead icon to overlap slightly */
+            position: relative;
+            /* Positioning context for dead icon */
         }
 
         /* Animation states */
@@ -87,54 +90,78 @@
             margin-bottom: -5px;
         }
 
+        /* Dead courier icon positioning */
+        .dead-courier-icon {
+            width: 20px;
+            /* Adjust size as needed */
+            height: 20px;
+            position: absolute;
+            bottom: 0;
+            /* Align bottom edge with row bottom */
+            right: 0;
+            /* Align right edge with row right (hero icon area) */
+            /* Remove transform - aligns corner to corner */
+            z-index: 2;
+            /* Ensure it's above other elements if necessary */
+            /* display handled by JS */
+        }
 
-        /* List of item icons */
+        /* Item list and icons */
         .item-list {
             display: flex;
             gap: 3px;
             flex-wrap: wrap;
-            /* Allow items to wrap if many */
             justify-content: flex-end;
-            /* Align items to the right within the list */
         }
 
         .item-icon {
             width: 32px;
-            /* Adjust item icon size */
             height: 24px;
             vertical-align: middle;
             background-color: rgba(0, 0, 0, 0.5);
-            /* Slight bg for contrast */
             border: 1px solid #444;
         }
 
         /* Hero icon */
         .hero-icon {
             width: 40px;
-            /* Adjust hero icon size */
             height: 23px;
-            /* Standard 16:9 ratio */
             border: 1px solid #555;
             background-size: cover;
             background-position: center center;
             flex-shrink: 0;
-            /* Prevent icon from shrinking */
         }
 
-        /* Courier icon at the bottom */
+        /* Container for the bottom courier icon */
+        #courier-icon-container {
+            width: 100%;
+            display: flex;
+            justify-content: flex-end;
+            /* Align right */
+            padding-right: 10px;
+            box-sizing: border-box;
+            margin-top: 5px;
+            min-height: 40px;
+            /* Match icon height to prevent collapse */
+        }
+
+        /* Bottom courier icon */
         #courier-icon {
             width: 40px;
-            /* Adjust size */
             height: 40px;
             display: block;
-            margin: 5px auto 0 auto;
-            /* Above bottom padding, centered */
+            /* Controlled by .hidden */
             opacity: 1;
             transition: opacity 0.5s ease-out;
+            flex-shrink: 0;
         }
 
+        /* Class to hide the icon */
         #courier-icon.hidden {
             opacity: 0;
+            height: 0;
+            /* Collapse space when hidden */
+            display: none;
         }
     </style>
 </head>
@@ -143,35 +170,37 @@
 
     <div id="delivery-container"></div>
 
-    <img id="courier-icon" src="courier_icon.png" alt="Courier Active" class="hidden">
+    <div id="courier-icon-container">
+        <img id="courier-icon" src="courier_icon.png" alt="Courier Active" class="hidden">
+    </div>
 
     <script>
         const deliveryContainer = document.getElementById('delivery-container');
-        const courierIcon = document.getElementById('courier-icon');
-        const POLLING_INTERVAL = 500; // Fetch data every second
-        const ANIMATION_DURATION = 500; // CSS transition time in ms
+        const courierIcon = document.getElementById('courier-icon'); // Get icon directly
+        const POLLING_INTERVAL = 500; // Fetch data interval (ms)
+        const ANIMATION_DURATION = 500; // CSS transition time (ms)
 
         // Store currently displayed rows by their deliveryId
-        let displayedDeliveries = {}; // { deliveryId: { element: rowElement, items: [...] } }
+        let displayedDeliveries = {}; // { deliveryId: { element: rowElement } }
 
         // --- Helper Functions ---
 
-        // Get Item Icon URL (using Steam CDN)
+        // Get Item Icon URL (using Steam CDN, handles recipes)
         function getItemIconUrl(itemName) {
             if (!itemName || itemName === 'empty') return '';
-            // Basic name cleanup (remove 'item_')
+            // Handle recipes specifically
+            if (itemName.startsWith('item_recipe_')) {
+                return 'https://cdn.cloudflare.steamstatic.com/apps/dota2/images/items/recipe_lg.png';
+            }
+            // Handle regular items
             const cleanName = itemName.startsWith('item_') ? itemName.substring(5) : itemName;
-            // Construct URL (adjust path based on actual CDN structure if needed)
-            // This uses the standard /apps/dota2/images/items/ path
             return `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/items/${cleanName}_lg.png`;
         }
 
         // Get Hero Icon URL (using Steam CDN)
         function getHeroIconUrl(heroName) {
             if (!heroName || heroName === 'unknown_hero') return '';
-            // Clean name (remove 'npc_dota_hero_')
             const cleanName = heroName.startsWith('npc_dota_hero_') ? heroName.substring(14) : heroName;
-            // Use horizontal portrait ('lg')
             return `https://cdn.cloudflare.steamstatic.com/apps/dota2/images/dota_react/heroes/${cleanName}.png`;
         }
 
@@ -179,43 +208,66 @@
 
         function updateDisplay(activeDeliveries) {
             const currentDeliveryIds = new Set();
-            activeDeliveries.forEach(d => currentDeliveryIds.add(d.deliveryId));
+            // Ensure we only process valid delivery objects with IDs
+            activeDeliveries.forEach(d => {
+                if (d && d.deliveryId) {
+                    currentDeliveryIds.add(d.deliveryId);
+                }
+            });
+            const existingDeliveryIds = new Set(Object.keys(displayedDeliveries));
 
             // 1. Remove rows for completed/vanished deliveries
-            for (const deliveryId in displayedDeliveries) {
+            existingDeliveryIds.forEach(deliveryId => {
                 if (!currentDeliveryIds.has(deliveryId)) {
                     const rowData = displayedDeliveries[deliveryId];
                     if (rowData && rowData.element) {
-                        rowData.element.classList.add('exiting'); // Trigger exit animation
-                        // Remove from DOM and state after animation
+                        rowData.element.classList.add('exiting');
                         setTimeout(() => {
-                            rowData.element.remove();
+                            if (rowData.element) { // Check if element still exists
+                                rowData.element.remove();
+                            }
                         }, ANIMATION_DURATION);
                     }
-                    delete displayedDeliveries[deliveryId]; // Remove from state immediately
+                    delete displayedDeliveries[deliveryId];
                 }
-            }
+            });
 
-            // 2. Add rows for new deliveries
+            // 2. Add new rows / Update existing rows
             activeDeliveries.forEach(delivery => {
-                if (!displayedDeliveries[delivery.deliveryId]) {
-                    // Create new row element
-                    const rowElement = document.createElement('div');
-                    rowElement.className = 'delivery-row entering'; // Start with entering class
-                    rowElement.dataset.id = delivery.deliveryId; // Store ID for removal check
+                if (!delivery || !delivery.deliveryId) return; // Skip invalid data
 
-                    // Create item list elements
+                let rowElement;
+                const isExisting = existingDeliveryIds.has(delivery.deliveryId);
+
+                if (!isExisting) {
+                    // --- Create NEW row element ---
+                    rowElement = document.createElement('div');
+                    rowElement.className = 'delivery-row entering';
+                    rowElement.dataset.id = delivery.deliveryId; // Store ID for tracking
+
+                    // Create Dead Icon (initially hidden)
+                    const deadIcon = document.createElement('img');
+                    deadIcon.className = 'dead-courier-icon';
+                    deadIcon.src = 'dead_courier_icon.png'; // Your dead courier icon filename
+                    deadIcon.alt = 'Courier Dead';
+                    deadIcon.style.display = 'none'; // Start hidden
+
+                    // Create item list
                     const itemList = document.createElement('div');
                     itemList.className = 'item-list';
-                    delivery.items.forEach(item => {
-                        const img = document.createElement('img');
-                        img.className = 'item-icon';
-                        img.src = getItemIconUrl(item.name);
-                        img.alt = item.name.replace('item_', '');
-                        itemList.appendChild(img);
+                    (delivery.items || []).forEach(item => {
+                        if (item && item.name) { // Add check for valid item object
+                            const img = document.createElement('img');
+                            img.className = 'item-icon';
+                            const itemIconUrl = getItemIconUrl(item.name);
+                            if (itemIconUrl) img.src = itemIconUrl; // Set src only if valid URL
+                            img.alt = item.name.replace('item_', '');
+                            img.onerror = function () { this.style.display = 'none'; }; // Hide if image fails to load
+                            itemList.appendChild(img);
+                        }
                     });
 
-                    // Create hero icon element
+                    // Create hero icon
                     const heroIcon = document.createElement('div');
                     heroIcon.className = 'hero-icon';
                     const heroIconUrl = getHeroIconUrl(delivery.heroName);
@@ -223,43 +275,44 @@
                         heroIcon.style.backgroundImage = `url(${heroIconUrl})`;
                     }
 
-                    // Append items and hero icon to row (order reversed visually)
+                    // Append in order: Dead Icon (Abs Pos), Items, Hero Icon
+                    rowElement.appendChild(deadIcon);
                     rowElement.appendChild(itemList);
                     rowElement.appendChild(heroIcon);
 
-                    // Add to container (will appear at top due to column-reverse)
-                    deliveryContainer.appendChild(rowElement);
+                    deliveryContainer.appendChild(rowElement); // Add to main container
+                    displayedDeliveries[delivery.deliveryId] = { element: rowElement }; // Store ref
 
-                    // Store reference
-                    displayedDeliveries[delivery.deliveryId] = { element: rowElement, items: delivery.items };
-
-                    // Trigger enter animation after element is added
+                    // Trigger enter animation
                     requestAnimationFrame(() => {
-                        setTimeout(() => { // Need timeout after raf to ensure transition triggers
-                            rowElement.classList.remove('entering');
-                        }, 20); // Small delay
+                        setTimeout(() => {
+                            if (rowElement) rowElement.classList.remove('entering');
+                        }, 20);
                     });
 
+                } else {
+                    // Get EXISTING row element
+                    rowElement = displayedDeliveries[delivery.deliveryId].element;
                 }
-                // No need to update existing rows as per current logic
+
+                // ALWAYS Update Dead Icon visibility for new or existing rows
+                const deadIconElement = rowElement.querySelector('.dead-courier-icon');
+                if (deadIconElement) {
+                    // Show icon if courierAlive is explicitly false, hide otherwise
+                    deadIconElement.style.display = delivery.courierAlive === false ? 'block' : 'none';
+                }
             });
 
-            // 3. Show/hide courier icon
-            if (activeDeliveries.length > 0) {
-                courierIcon.classList.remove('hidden');
-            } else {
-                courierIcon.classList.add('hidden');
-            }
+            // 3. Show/hide bottom courier icon using class toggle
+            courierIcon.classList.toggle('hidden', activeDeliveries.length === 0);
         }
 
         // --- Fetching Data ---
-
         async function fetchData() {
             try {
                 const response = await fetch('/delivery_data'); // Fetch from courier server endpoint
                 if (!response.ok) {
-                    console.error(`HTTP error! Status: ${response.status}`);
-                    // Optionally hide everything or show error state
+                    console.error(`HTTP error fetching delivery data! Status: ${response.status}`);
                     updateDisplay([]); // Clear display on error
                     return;
                 }
@@ -272,8 +325,10 @@
         }
 
         // --- Initial Setup & Interval ---
+        console.log("Courier Items Overlay Initializing...");
         fetchData(); // Initial fetch
-        setInterval(fetchData, POLLING_INTERVAL); // Fetch data periodically
+        const intervalId = setInterval(fetchData, POLLING_INTERVAL); // Fetch data periodically
+        console.log("Polling for delivery data started.");
 
     </script>
 </body>
