@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Dota 2 Damage Received</title>
+    <meta charset="UTF-8">
+    <style>
+        /* Basic Styles */
+        body {
+            background-color: rgba(30, 30, 30, 0.75);
+            border-radius: 6px;
+            margin: 0;
+            padding: 8px;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #ffffff;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.9);
+            overflow: hidden;
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .damage-container {
+            display: flex;
+            width: 100%;
+        }
+
+        /* Single row for all heroes */
+        .all-heroes-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-end;
+            width: 100%;
+            gap: 2px;
+        }
+
+        .hero-damage-entry {
+            flex: 1;
+            min-width: 30px;
+            position: relative;
+            height: 55px;
+        }
+
+        /* Container for the vertical bar */
+        .damage-bar-container {
+            width: 18px;
+            height: 35px;
+            background-color: transparent;
+            border-radius: 3px;
+            overflow: hidden;
+            display: flex;
+            align-items: flex-start;
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        /* The actual vertical bar */
+        .damage-bar {
+            width: 100%;
+            background-color: #ffcc00;
+            height: 0%;
+            border-radius: 0 0 3px 3px;
+            transition: height 0.3s ease-out;
+        }
+
+        .damage-text {
+            font-size: 0.7em;
+            font-weight: bold;
+            line-height: 1.0;
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            top: 37px;
+            /* JS will override */
+            white-space: nowrap;
+        }
+
+        /* Container for the title and icon */
+        #title-container {
+            flex-grow: 0;
+            flex-shrink: 0;
+            align-self: center;
+            padding: 0 10px;
+            text-align: center;
+            line-height: 1.0;
+        }
+
+        #title-text {
+            font-size: 0.9em;
+            font-weight: bold;
+            color: #cccccc;
+            display: block;
+            white-space: nowrap;
+        }
+
+        #title-icon {
+            font-size: 1.1em;
+            color: #aaaaaa;
+            display: block;
+            margin-top: 4px;
+        }
+
+        /* Team-specific bar colors */
+        .radiant .damage-bar {
+            background-color: #62a4f4;
+        }
+
+        .dire .damage-bar {
+            background-color: #ff6f61;
+        }
+
+        #loading {
+            text-align: center;
+            padding: 10px;
+            font-size: 0.8em;
+            width: 100%;
+        }
+    </style>
+</head>
+
+<body>
+
+    <div class="damage-container" id="container">
+        <div class="all-heroes-row" id="all-heroes-row"></div>
+        <div id="loading" style="display: none;">Waiting for game data...</div>
+    </div>
+
+    <script>
+        const allHeroesRow = document.getElementById('all-heroes-row');
+        const container = document.getElementById('container');
+        const loadingDiv = document.getElementById('loading');
+        let titleContainerElement = null;
+        const MAX_BAR_HEIGHT_PX = 35;
+        const TEXT_PADDING_BELOW_BAR = 2;
+
+        function formatValue(value) {
+            // Ensure value is treated as a number, default to 0 if undefined/null
+            const numValue = Number(value) || 0;
+            if (numValue === 0) { return "0.0k"; }
+            return (numValue / 1000).toFixed(1) + 'k';
+        }
+        function getSlotIndex(playerKey) {
+            return parseInt(playerKey.replace('player', ''), 10);
+        }
+
+        async function fetchDataAndUpdate() {
+            try {
+                const response = await fetch('/damage_data');
+                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+                const data = await response.json();
+
+                if (Object.keys(data).length !== 10) {
+                    container.style.display = 'none'; loadingDiv.style.display = 'block';
+                    allHeroesRow.innerHTML = ''; titleContainerElement = null; return;
+                } else {
+                    container.style.display = 'flex'; loadingDiv.style.display = 'none';
+                }
+
+                allHeroesRow.innerHTML = '';
+
+                const players = Object.entries(data).map(([playerKey, playerData]) => ({
+                    playerKey: playerKey,
+                    slotIndex: getSlotIndex(playerKey),
+                    ...playerData,
+                    // *** Trying to access damage_received - THIS FIELD IS NOT PROVIDED BY CURRENT BACKEND ***
+                    damage_value: playerData.damage_received // Use a generic name, points to placeholder
+                }));
+
+                // Find max value based on the placeholder field 'damage_received'
+                let maxValue = 0;
+                // Ensure damage_value is treated as number, default to 0
+                players.forEach(p => { if (Number(p.damage_value) > maxValue) maxValue = Number(p.damage_value); });
+
+                players.sort((a, b) => a.slotIndex - b.slotIndex);
+
+                players.forEach((player, index) => {
+                    const entryDiv = document.createElement('div');
+                    entryDiv.className = `hero-damage-entry ${player.team}`; // Use existing class names
+                    const barContainer = document.createElement('div');
+                    barContainer.className = 'damage-bar-container';
+                    const damageBar = document.createElement('div');
+                    damageBar.className = 'damage-bar'; // Use existing class names
+                    const valueText = document.createElement('span'); // Use generic name
+                    valueText.className = 'damage-text'; // Use existing class name
+                    // Display the placeholder value
+                    valueText.textContent = formatValue(player.damage_value);
+
+                    // Calculate bar height based on placeholder value
+                    const currentVal = Number(player.damage_value) || 0;
+                    const barHeightPercent = (maxValue > 0) ? Math.min(100, (currentVal / maxValue) * 100) : 0;
+                    const barPixelHeight = (MAX_BAR_HEIGHT_PX / 100) * barHeightPercent;
+
+                    damageBar.style.height = barHeightPercent + '%';
+                    valueText.style.top = (barPixelHeight + TEXT_PADDING_BELOW_BAR) + 'px';
+
+                    barContainer.appendChild(damageBar);
+                    entryDiv.appendChild(barContainer);
+                    entryDiv.appendChild(valueText);
+                    allHeroesRow.appendChild(entryDiv);
+
+                    // Insert Title container after the 5th hero
+                    if (index === 4) {
+                        if (!titleContainerElement) {
+                            titleContainerElement = document.createElement('div');
+                            titleContainerElement.id = 'title-container';
+                            const textSpan = document.createElement('span');
+                            textSpan.id = 'title-text';
+                            textSpan.textContent = 'Damage Received';
+                            const iconSpan = document.createElement('span');
+                            iconSpan.id = 'title-icon';
+                            iconSpan.textContent = '🛡️';
+                            titleContainerElement.appendChild(textSpan);
+                            titleContainerElement.appendChild(iconSpan);
+                        }
+                        allHeroesRow.appendChild(titleContainerElement);
+                    }
+                });
+
+            } catch (error) {
+                console.error("Could not fetch or update damage received data:", error);
+                container.style.display = 'none'; loadingDiv.textContent = 'Error loading data.';
+                loadingDiv.style.display = 'block'; allHeroesRow.innerHTML = '';
+                titleContainerElement = null;
+            }
+        }
+
+        const updateInterval = setInterval(fetchDataAndUpdate, 2000);
+        fetchDataAndUpdate();
+    </script>
+</body>
+
+</html>

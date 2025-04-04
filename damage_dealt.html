@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Dota 2 Damage Overlay</title>
+    <meta charset="UTF-8">
+    <style>
+        /* Basic Styles */
+        body {
+            background-color: rgba(30, 30, 30, 0.75);
+            border-radius: 15px;
+            /* Increased radius */
+            margin: 0;
+            padding: 40px;
+            /* 16px * 2.5 */
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            color: #ffffff;
+            text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.9);
+            overflow: hidden;
+            width: 100%;
+            box-sizing: border-box;
+            /* --- Increase base font size significantly --- */
+            font-size: 32px;
+            /* Adjust base size as needed */
+        }
+
+        .damage-container {
+            padding: 5px;
+            display: flex;
+            width: 100%;
+        }
+
+        .all-heroes-row {
+            display: flex;
+            justify-content: center;
+            align-items: flex-end;
+            width: 100%;
+            gap: 10px;
+            /* 4px * 2.5 */
+        }
+
+        .hero-damage-entry {
+            flex: 0 0 auto;
+            width: 70px;
+            /* 30px (original base) * 5 -> use previous 60px * 1.25 approx */
+            position: relative;
+            /* Height needs to accommodate large bar + text */
+            height: 230px;
+            /* Approx: 175px bar + 10px pad + ~40px text */
+        }
+
+        /* Bar Container */
+        .damage-bar-container {
+            width: 50px;
+            /* 18px (original base) * 5 -> use previous 36px * 1.25 approx */
+            height: 175px;
+            /* 35px (original base) * 5 = 70px * 2.5 */
+            background-color: transparent;
+            border-radius: 6px;
+            /* Increased radius */
+            overflow: hidden;
+            display: flex;
+            align-items: flex-start;
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        /* Bar */
+        .damage-bar {
+            width: 100%;
+            height: 0%;
+            border-radius: 0 0 8px 8px;
+            /* Increased radius */
+            transition: height 0.3s ease-out;
+        }
+
+        .radiant .damage-bar {
+            background-color: #62a4f4;
+        }
+
+        .dire .damage-bar {
+            background-color: #ff6f61;
+        }
+
+        /* Damage text */
+        .damage-text {
+            /* Keep relative size, based on new body font-size */
+            font-size: 2.0rem;
+            /* 1 * 32px = 32px font */
+            font-weight: bold;
+            line-height: 1.0;
+            position: absolute;
+            left: 50%;
+            transform: translateX(-50%);
+            top: 185px;
+            /* Fallback: new MAX_BAR_HEIGHT + padding */
+            white-space: nowrap;
+            width: auto;
+        }
+
+        /* Title Container */
+        #title-container {
+            flex-grow: 0;
+            flex-shrink: 0;
+            align-self: flex-end;
+            padding: 0 10px;
+            /* 10px * 2.5 */
+            margin: 0 13px;
+            /* 5px * 2.5 */
+            text-align: center;
+            line-height: 1.1;
+            margin-bottom: 10px;
+            /* Increased bottom margin */
+        }
+
+        #title-text {
+            font-size: 2.2rem;
+            /* Adjust relative to body font-size */
+            font-weight: bold;
+            color: #e0e0e0;
+            display: block;
+            white-space: nowrap;
+        }
+
+        #title-icon-img {
+            /* Scale previous 70px size */
+            width: 225px;
+            /* Let's try scaling the user's 50px -> 125px */
+            height: 225px;
+            object-fit: contain;
+            display: block;
+            margin: 0 auto 5px auto;
+            /* Increased bottom margin */
+            image-rendering: pixelated;
+            /* Keep for sharpness */
+        }
+
+        #loading {
+            text-align: center;
+            padding: 50px;
+            font-size: 1.0rem;
+            width: 100%;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="damage-container" id="container">
+        <div class="all-heroes-row" id="all-heroes-row"></div>
+        <div id="loading" style="display: none;">Waiting for game data...</div>
+    </div>
+    <script>
+        const allHeroesRow = document.getElementById('all-heroes-row');
+        const container = document.getElementById('container');
+        const loadingDiv = document.getElementById('loading');
+        let titleContainerElement = null;
+        // --- UPDATE THESE CONSTANTS ---
+        const MAX_BAR_HEIGHT_PX = 175; // Matches new .damage-bar-container height
+        const TEXT_PADDING_BELOW_BAR = 10; // Scaled padding (adjust if needed)
+        // --- END UPDATES ---
+
+        // Functions formatDamage, getSlotIndex remain the same...
+        function formatDamage(damage) { if (damage === 0) { return "0.0k"; } return (damage / 1000).toFixed(1) + 'k'; }
+        function getSlotIndex(playerKey) { return parseInt(playerKey.replace('player', ''), 10); }
+
+        async function fetchDataAndUpdate() {
+            try {
+                // Fetch, data check, player mapping, max damage calc, sort remain the same...
+                const response = await fetch('/damage_data');
+                if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+                const data = await response.json();
+                if (Object.keys(data).length !== 10) { container.style.display = 'none'; loadingDiv.style.display = 'block'; allHeroesRow.innerHTML = ''; titleContainerElement = null; return; }
+                else { container.style.display = 'flex'; loadingDiv.style.display = 'none'; }
+                allHeroesRow.innerHTML = '';
+                const players = Object.entries(data).map(([playerKey, playerData]) => ({ playerKey: playerKey, slotIndex: getSlotIndex(playerKey), ...playerData }));
+                let maxDamage = 0;
+                players.forEach(p => { if (p.damage_dealt > maxDamage) maxDamage = p.damage_dealt; });
+                if (maxDamage === 0) maxDamage = 1;
+                players.sort((a, b) => a.slotIndex - b.slotIndex);
+
+                players.forEach((player, index) => {
+                    // Element creation remains the same...
+                    const entryDiv = document.createElement('div'); entryDiv.className = `hero-damage-entry ${player.team}`;
+                    const barContainer = document.createElement('div'); barContainer.className = 'damage-bar-container';
+                    const damageBar = document.createElement('div'); damageBar.className = 'damage-bar';
+                    const damageText = document.createElement('span'); damageText.className = 'damage-text';
+                    damageText.textContent = formatDamage(player.damage_dealt);
+
+                    // Calculation uses updated constants
+                    const barHeightPercent = (maxDamage > 0) ? Math.min(100, (player.damage_dealt / maxDamage) * 100) : 0;
+                    const barPixelHeight = (MAX_BAR_HEIGHT_PX / 100) * barHeightPercent;
+
+                    damageBar.style.height = barHeightPercent + '%';
+                    // Set dynamic top position for text using updated constants
+                    damageText.style.top = (barPixelHeight + TEXT_PADDING_BELOW_BAR) + 'px';
+
+                    // Appending elements remains the same...
+                    barContainer.appendChild(damageBar);
+                    entryDiv.appendChild(barContainer);
+                    entryDiv.appendChild(damageText);
+                    allHeroesRow.appendChild(entryDiv);
+
+                    // Title insertion remains the same...
+                    if (index === 4) {
+                        if (!titleContainerElement) {
+                            titleContainerElement = document.createElement('div'); titleContainerElement.id = 'title-container';
+                            const iconImg = document.createElement('img'); iconImg.id = 'title-icon-img'; iconImg.src = 'damage_icon.png'; iconImg.alt = 'Damage Icon';
+                            const textSpan = document.createElement('span'); textSpan.id = 'title-text'; textSpan.textContent = 'Damage Dealt';
+                            titleContainerElement.appendChild(iconImg); // Icon first
+                            titleContainerElement.appendChild(textSpan); // Text second
+                        }
+                        allHeroesRow.appendChild(titleContainerElement);
+                    }
+                });
+            } catch (error) { /* Error handling unchanged */ console.error("Could not fetch or update damage dealt data:", error); container.style.display = 'none'; loadingDiv.textContent = 'Error loading data.'; loadingDiv.style.display = 'block'; allHeroesRow.innerHTML = ''; titleContainerElement = null; }
+        }
+        // Interval and initial fetch remain the same...
+        const updateInterval = setInterval(fetchDataAndUpdate, 2000);
+        fetchDataAndUpdate();
+    </script>
+</body>
+
+</html>
