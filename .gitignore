@@ -48,6 +48,7 @@ Thumbs.db
 # Configuration files specific to certain code editors
 .idea/
 .vscode/
+.claude/
 *.sublime-project
 *.sublime-workspace
 

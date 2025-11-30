@@ -8,32 +8,47 @@ const port = 3002;
 app.use(express.static(__dirname));
 
 // --- State Variables ---
-// damageData: Holds the comprehensive data packet sent to overlays
+// Damage/Stats data
 let damageData = {};
-// playerState: Stores previous health and accumulated received damage
 let playerState = {}; // Format: { playerKey: { previousHealth: null, damageReceived: 0 } }
+
+// Courier data
+let previousCourierState = {};
+let activeDeliveries = {};
+
 let lastReceivedTimestamp = null;
 // --- End State Variables ---
 
 app.use(bodyParser.json({ limit: '5mb' }));
 
+// Helper function for courier tracking
+function slotToPlayerKey(slot) {
+    if (slot >= 0 && slot <= 9) {
+        return `player${slot}`;
+    }
+    return null;
+}
+
+// Check if game is active (in progress or pre-game phase)
+function isGameActive(gameState) {
+    return gameState === 'DOTA_GAMERULES_STATE_GAME_IN_PROGRESS' ||
+           gameState === 'DOTA_GAMERULES_STATE_PRE_GAME';
+}
+
 app.post('/', (req, res) => {
     const now = new Date();
     lastReceivedTimestamp = now;
     const currentGsiPayload = req.body;
-    let gameInProgress = false;
+    const gameState = currentGsiPayload?.map?.game_state;
+    const gameInProgress = isGameActive(gameState);
 
-    // Determine game state first using optional chaining for safety
-    if (currentGsiPayload?.map?.game_state === 'DOTA_GAMERULES_STATE_GAME_IN_PROGRESS') {
-        gameInProgress = true;
-    }
-
-    // Process data only if game is in progress and required objects exist
+    // ==========================================
+    // DAMAGE & STATS PROCESSING
+    // ==========================================
     if (gameInProgress && currentGsiPayload.player && currentGsiPayload.hero) {
-        const newDamageData = {}; // Temporary object for this cycle's output data
+        const newDamageData = {};
         let heroesProcessed = 0;
 
-        // Iterate through teams and players
         for (const teamKey in currentGsiPayload.hero) {
             if (currentGsiPayload.hero.hasOwnProperty(teamKey) && typeof currentGsiPayload.hero[teamKey] === 'object') {
                 const heroTeamObject = currentGsiPayload.hero[teamKey];
@@ -44,46 +59,33 @@ app.post('/', (req, res) => {
                         const heroInfo = heroTeamObject[playerKey];
                         const playerInfo = (playerTeamObject && playerTeamObject.hasOwnProperty(playerKey)) ? playerTeamObject[playerKey] : null;
 
-                        // Check if basic info is valid
                         if (heroInfo && heroInfo.id !== undefined && heroInfo.id !== 0 && playerInfo && playerInfo.team_name) {
-
-                            // --- Calculate Damage Received (Approximate) ---
+                            // Calculate Damage Received (Approximate)
                             const currentHealth = heroInfo.health;
                             let accumulatedDamageReceived = 0;
 
-                            // Initialize state for this player if it doesn't exist
                             if (!playerState[playerKey]) {
                                 playerState[playerKey] = { previousHealth: null, damageReceived: 0 };
                             }
                             const state = playerState[playerKey];
 
-                            // Calculate diff if we have previous health AND current health is valid
                             if (state.previousHealth !== null && currentHealth !== undefined) {
                                 const healthDiff = state.previousHealth - currentHealth;
-                                // Only accumulate if health decreased (positive diff)
-                                // Basic check - doesn't account for healing exceeding damage between ticks etc.
                                 if (healthDiff > 0) {
                                     state.damageReceived += healthDiff;
                                 }
                             }
 
-                            // Update previous health only if currentHealth is valid
                             if (currentHealth !== undefined) {
                                 state.previousHealth = currentHealth;
                             }
-                            // Get the accumulated value for the output data
                             accumulatedDamageReceived = state.damageReceived;
-                            // --- End Damage Received Calculation ---
 
                             heroesProcessed++;
-                            // Build the comprehensive data packet for this player
                             newDamageData[playerKey] = {
-                                // Hero Info
                                 heroName: heroInfo.name,
                                 heroId: heroInfo.id,
                                 level: heroInfo.level,
-
-                                // Player Info (Direct GSI Stats)
                                 damage_dealt: playerInfo.hero_damage,
                                 team: playerInfo.team_name,
                                 gpm: playerInfo.gpm,
@@ -99,9 +101,7 @@ app.post('/', (req, res) => {
                                 wards_destroyed: playerInfo.wards_destroyed,
                                 camps_stacked: playerInfo.camps_stacked,
                                 runes_activated: playerInfo.runes_activated,
-
-                                // Calculated Stats
-                                damage_received: accumulatedDamageReceived // <<< ADDED CALCULATED VALUE
+                                damage_received: accumulatedDamageReceived
                             };
                         }
                     }
@@ -109,22 +109,143 @@ app.post('/', (req, res) => {
             }
         }
 
-        // Update the main data object only if heroes were processed
         if (heroesProcessed > 0) {
             if (Object.keys(damageData).length !== heroesProcessed) {
-                console.log(`[${now.toLocaleTimeString()}] Processed ${heroesProcessed} heroes. (State Initialized/Changed)`);
+                console.log(`[${now.toLocaleTimeString()}] Processed ${heroesProcessed} heroes.`);
             }
-            damageData = newDamageData; // Update the data served to overlays
+            damageData = newDamageData;
+        }
+    }
+
+    // ==========================================
+    // COURIER PROCESSING
+    // ==========================================
+    if (gameInProgress && currentGsiPayload.couriers && currentGsiPayload.hero && currentGsiPayload.player) {
+        const currentCouriers = currentGsiPayload.couriers;
+        const previousData = currentGsiPayload.previously;
+        const deliveryIdCounter = now.getTime();
+        let currentCourierStateThisTick = {};
+
+        // Process Current Courier States and Detect New Items
+        for (const courierId in currentCouriers) {
+            if (currentCouriers.hasOwnProperty(courierId)) {
+                const courier = currentCouriers[courierId];
+                const courierItems = courier.items || {};
+                const ownerSlot = courier.owner;
+                const ownerPlayerKey = slotToPlayerKey(ownerSlot);
+                const isAlive = courier.alive === undefined ? true : courier.alive;
+
+                let currentItemsList = [];
+                let currentItemsCount = {};
+                for (const itemSlot in courierItems) {
+                    if (courierItems.hasOwnProperty(itemSlot) && courierItems[itemSlot].name !== 'empty') {
+                        const itemName = courierItems[itemSlot].name;
+                        currentItemsList.push({ name: itemName });
+                        currentItemsCount[itemName] = (currentItemsCount[itemName] || 0) + 1;
+                    }
+                }
+
+                currentCourierStateThisTick[courierId] = {
+                    owner: ownerSlot,
+                    items: currentItemsCount,
+                    itemNamesList: Object.keys(currentItemsCount),
+                    alive: isAlive
+                };
+
+                const prevCourier = previousCourierState[courierId];
+                const prevItemNames = new Set(prevCourier?.itemNamesList || []);
+                const newItemNames = currentCourierStateThisTick[courierId].itemNamesList.filter(name => !prevItemNames.has(name));
+
+                // If new items appeared and no active delivery for this courier
+                if (newItemNames.length > 0 && !Object.values(activeDeliveries).some(d => d.courierId === courierId)) {
+                    const deliveryId = `${courierId}-${deliveryIdCounter}`;
+                    let heroName = 'unknown_hero';
+                    let teamKeyForHero = null;
+                    if (currentGsiPayload.hero.team2 && currentGsiPayload.hero.team2[ownerPlayerKey]) teamKeyForHero = 'team2';
+                    else if (currentGsiPayload.hero.team3 && currentGsiPayload.hero.team3[ownerPlayerKey]) teamKeyForHero = 'team3';
+                    if (teamKeyForHero && currentGsiPayload.hero[teamKeyForHero][ownerPlayerKey]) {
+                        heroName = currentGsiPayload.hero[teamKeyForHero][ownerPlayerKey].name;
+                    }
+
+                    activeDeliveries[deliveryId] = {
+                        deliveryId: deliveryId,
+                        courierId: courierId,
+                        ownerPlayerKey: ownerPlayerKey,
+                        items: currentItemsList,
+                        startTime: now.getTime(),
+                        heroName: heroName,
+                        courierAlive: isAlive
+                    };
+                    console.log(`[${now.toLocaleTimeString()}] Courier delivery started: ${heroName}`);
+                } else if (activeDeliveries[Object.keys(activeDeliveries).find(id => activeDeliveries[id].courierId === courierId)]) {
+                    const existingDeliveryId = Object.keys(activeDeliveries).find(id => activeDeliveries[id].courierId === courierId);
+                    if (existingDeliveryId && activeDeliveries[existingDeliveryId].courierAlive !== isAlive) {
+                        activeDeliveries[existingDeliveryId].courierAlive = isAlive;
+                        console.log(`[${now.toLocaleTimeString()}] Courier ${isAlive ? 'respawned' : 'died'}`);
+                    }
+                }
+            }
         }
 
-    } else if (currentGsiPayload?.map) { // Check map exists before accessing state
-        // If game is NOT in progress, reset everything
-        const currentGameState = currentGsiPayload.map.game_state;
-        // Reset only if not already empty to avoid spamming logs
-        if (!gameInProgress && (Object.keys(damageData).length > 0 || Object.keys(playerState).length > 0)) {
-            console.log(` --> Game state is ${currentGameState}. Resetting all overlay data and state.`);
-            damageData = {}; // Clear output data
-            playerState = {}; // <<< Reset stored health/damage received state >>>
+        // Check if any active deliveries have ended
+        const deliveryIdsToRemove = [];
+        if (previousData && previousData.couriers) {
+            for (const deliveryId in activeDeliveries) {
+                const delivery = activeDeliveries[deliveryId];
+                const prevCourierData = previousData.couriers[delivery.courierId];
+                if (prevCourierData && prevCourierData.items) {
+                    let itemLeftCourier = false;
+                    for (const itemToCheck of delivery.items) {
+                        let foundInPrevious = false;
+                        for (const prevItemSlot in prevCourierData.items) {
+                            if (prevCourierData.items[prevItemSlot].name === itemToCheck.name) {
+                                foundInPrevious = true;
+                                break;
+                            }
+                        }
+                        if (foundInPrevious) {
+                            let foundInCurrent = false;
+                            const currentItemsOnThisCourier = currentCourierStateThisTick[delivery.courierId]?.itemNamesList || [];
+                            if (currentItemsOnThisCourier.includes(itemToCheck.name)) {
+                                foundInCurrent = true;
+                            }
+                            if (!foundInCurrent) {
+                                itemLeftCourier = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (itemLeftCourier) {
+                        deliveryIdsToRemove.push(deliveryId);
+                    }
+                }
+            }
+        }
+        deliveryIdsToRemove.forEach(id => {
+            if (activeDeliveries[id]) {
+                console.log(`[${now.toLocaleTimeString()}] Courier delivery completed`);
+                delete activeDeliveries[id];
+            }
+        });
+
+        previousCourierState = currentCourierStateThisTick;
+    }
+
+    // ==========================================
+    // RESET STATE IF GAME NOT IN PROGRESS
+    // ==========================================
+    if (!gameInProgress && currentGsiPayload?.map) {
+        const hasData = Object.keys(damageData).length > 0 ||
+                        Object.keys(playerState).length > 0 ||
+                        Object.keys(activeDeliveries).length > 0 ||
+                        Object.keys(previousCourierState).length > 0;
+
+        if (hasData) {
+            console.log(`[${now.toLocaleTimeString()}] Game ended (${gameState}). Resetting all data.`);
+            damageData = {};
+            playerState = {};
+            activeDeliveries = {};
+            previousCourierState = {};
         }
     }
 
@@ -133,43 +254,50 @@ app.post('/', (req, res) => {
 
 // --- Endpoints ---
 
-// GET /damage_data (Serves the combined data)
+// Damage/Stats endpoints
 app.get('/damage_data', (req, res) => {
     res.json(damageData);
 });
 
-// GET /damage_dealt
 app.get('/damage_dealt', (req, res) => {
     res.sendFile(path.join(__dirname, 'damage_dealt.html'));
 });
 
-// GET /damage_received
 app.get('/damage_received', (req, res) => {
     res.sendFile(path.join(__dirname, 'damage_received.html'));
 });
 
-// GET /wards
 app.get('/wards', (req, res) => {
     res.sendFile(path.join(__dirname, 'wards.html'));
 });
 
-// --- Server Start & Health Check ---
-
-app.listen(port, () => {
-    console.log(`------------------------------------------------------`);
-    console.log(`Dota 2 Damage GSI Listener running at http://localhost:${port}`);
-    console.log(`Damage Dealt Overlay available at http://localhost:${port}/damage_dealt`);
-    console.log(`Damage Received Overlay available at http://localhost:${port}/damage_received`);
-    console.log(`Wards Overlay available at http://localhost:${port}/wards`);
-    console.log(`------------------------------------------------------`);
-    console.log('Waiting for Dota 2 game data...');
-    console.log('Ensure Dota 2 is running and you are IN a match/spectating.');
+// Courier endpoints
+app.get('/delivery_data', (req, res) => {
+    res.json(Object.values(activeDeliveries));
 });
 
-// Stale data check remains the same
+app.get('/courier_items', (req, res) => {
+    res.sendFile(path.join(__dirname, 'courier_items.html'));
+});
+
+// --- Server Start ---
+app.listen(port, () => {
+    console.log(`------------------------------------------------------`);
+    console.log(`Dota 2 GSI Caster Overlay running at http://localhost:${port}`);
+    console.log(`------------------------------------------------------`);
+    console.log(`Overlays:`);
+    console.log(`  - Damage Dealt:    http://localhost:${port}/damage_dealt`);
+    console.log(`  - Damage Received: http://localhost:${port}/damage_received`);
+    console.log(`  - Wards:           http://localhost:${port}/wards`);
+    console.log(`  - Courier Items:   http://localhost:${port}/courier_items`);
+    console.log(`------------------------------------------------------`);
+    console.log('Waiting for Dota 2 game data...');
+});
+
+// Stale data check
 setInterval(() => {
     if (lastReceivedTimestamp && (new Date() - lastReceivedTimestamp > 60000)) {
-        console.warn("(!) Warning: Haven't received GSI data in the last minute. Is Dota 2 running and sending data to the correct port?");
+        console.warn("(!) Warning: No GSI data received in the last minute.");
         lastReceivedTimestamp = null;
     }
 }, 30000);
